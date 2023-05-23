@@ -16,11 +16,11 @@ BIOS_INC  = -I"C:/ti/tirtos_tivac_2_16_01_14/products/bios_6_45_02_31/packages/"
 
 TARGET_INC = -I"C:/ti/tirtos_tivac_2_16_01_14/products/bios_6_45_02_31/packages/"
 
-INCS = $(BIOS_INC) $(TARGET_INC)  --include_path="C:/Users/dylan/OneDrive --include_path="C:/Users/dylan/OneDrive --include_path="C:/ti/tirtos_tivac_2_16_01_14/products/TivaWare_C_Series-2.1.1.71b" --include_path="C:/ti/tirtos_tivac_2_16_01_14/products/bios_6_45_02_31/packages/ti/sysbios/posix" --include_path="C:/ti/ccs1220/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/include" 
+INCS = $(BIOS_INC) $(TARGET_INC)  --include_path="C:/ti/TivaWare_C_Series-2.2.0.295" --include_path="C:/Users/matti/workspace_v12/Assign2-Grp14/empty_min_EK_TM4C1294XL_TI/drivers" --include_path="C:/Users/matti/workspace_v12/Assign2-Grp14/empty_min_EK_TM4C1294XL_TI" --include_path="C:/Users/matti/workspace_v12/Assign2-Grp14/empty_min_EK_TM4C1294XL_TI" --include_path="C:/ti/tirtos_tivac_2_16_01_14/products/TivaWare_C_Series-2.1.1.71b" --include_path="C:/ti/tirtos_tivac_2_16_01_14/products/bios_6_45_02_31/packages/ti/sysbios/posix" --include_path="C:/ti/ccs1230/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/include" 
 
-CC = C:/ti/ccs1220/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armcl -c $(CCOPTS) -I C:/ti/ccs1220/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/include
-ASM = C:/ti/ccs1220/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armcl -c $(CCOPTS) -I C:/ti/ccs1220/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/include
-AR = C:/ti/ccs1220/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armar rq
+CC = C:/ti/ccs1230/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armcl -c $(CCOPTS) -I C:/ti/ccs1230/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/include
+ASM = C:/ti/ccs1230/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armcl -c $(CCOPTS) -I C:/ti/ccs1230/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/include
+AR = C:/ti/ccs1230/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armar rq
 
 DEL = C:/ti/xdctools_3_32_00_06_core/packages/../bin/rm -f
 CP = C:/ti/xdctools_3_32_00_06_core/packages/../bin/cp -f

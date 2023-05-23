@@ -7,7 +7,7 @@
         <srcFile name="package/cfg/empty_min_pem4f.c"/>
     </sources>
     <configscripts>
-        <srcFile name="C:/Users/dylan/OneDrive - Queensland University of Technology/H-Migrated/EGH456_2023/empty_min_EK_TM4C1294XL_TI/empty_min.cfg"/>
+        <srcFile name="C:/Users/matti/workspace_v12/Assign2-Grp14/empty_min_EK_TM4C1294XL_TI/empty_min.cfg"/>
     </configscripts>
     <makefiles>
         <srcFile name="package.mak" src="package.bld"/>
@@ -25,7 +25,7 @@
             platform="ti.platforms.tiva:TM4C1294NCPDT:1"
             isa="v7M4"
             suffix="em4f"
-            rootDir="C:/ti/ccs1220/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS"
+            rootDir="C:/ti/ccs1230/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS"
             os="undefined"
             rts="ti.targets.arm.rtsarm">
             <model endian="little"
@@ -44,7 +44,7 @@
         isPartial="false"
         xCfgScript="package/cfg/empty_min_pem4f.cfg"
         xCfgPrefix="package/cfg/empty_min_pem4f"
-        cfgScript="C:/Users/dylan/OneDrive - Queensland University of Technology/H-Migrated/EGH456_2023/empty_min_EK_TM4C1294XL_TI/empty_min.cfg"
+        cfgScript="C:/Users/matti/workspace_v12/Assign2-Grp14/empty_min_EK_TM4C1294XL_TI/empty_min.cfg"
         cfgArgs="null"
         />
     </configurations>
@@ -56,7 +56,7 @@
         profile="release"
         xCfgScript="package/cfg/empty_min_pem4f.cfg"
         xCfgPrefix="package/cfg/empty_min_pem4f"
-        cfgScript="C:/Users/dylan/OneDrive - Queensland University of Technology/H-Migrated/EGH456_2023/empty_min_EK_TM4C1294XL_TI/empty_min.cfg"
+        cfgScript="C:/Users/matti/workspace_v12/Assign2-Grp14/empty_min_EK_TM4C1294XL_TI/empty_min.cfg"
         cfgArgs="null"
         />
     </executables>

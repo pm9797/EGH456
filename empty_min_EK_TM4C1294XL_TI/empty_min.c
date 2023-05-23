@@ -63,38 +63,37 @@
 #include "driverlib/pin_map.h"
 #include "utils/uartstdio.h"
 #include "driverlib/sysctl.h"
+#include <ti/sysbios/knl/Clock.h>
 
-#define TASKSTACKSIZE   1024
 uint32_t g_ui32SysClock;
+
+// Setup Tasks
+#define TASKSTACKSIZE   1024
 
 Task_Struct task0Struct;
 Char task0Stack[TASKSTACKSIZE];
 
-/*
- *  ======== heartBeatFxn ========
- *  Toggle the Board_LED0. The Task_sleep is determined by arg0 which
- *  is configured for the heartBeat Task instance.
- */
-Void heartBeatFxn(UArg arg0, UArg arg1)
-{
-    uint16_t rpm = 100;
-//    enableMotor();
-//    setDuty(25);
-    motor_SetRPM(rpm);
-}
+Task_Struct task1Struct;
+Char task1Stack[TASKSTACKSIZE];
+
+
 
 //*****************************************************************************
 //
 // Motor Control
 //
 //*****************************************************************************
-#define PIN_HA PM_3
-#define PIN_HB PH_2
-#define PIN_HC PN_2
-#define MOTOR_ACCELERATION_RPMs = 750 //Note that this is measured in RPM per Second
-#define MOTOR_ESTOP_RPMs = 1000 //Note that this is measured in RPM per Second
+
+#define MOTOR_ACCELERATION_RPMs 750 //Note that this is measured in RPM per Second
+#define MOTOR_ESTOP_RPMs 1000 //Note that this is measured in RPM per Second
 #define MOTOR_CURR_MAX //we need to decide what this is
 #define MOTOR_TEMP_MAX //we need to decide what this is
+#define MOTOR_MAX_DUTY 100
+
+bool *hallStates;
+double rpm = 0;
+uint16_t input_rpm = 500;
+
 //
 // E-Stop Thread / Interupt
 //
@@ -114,46 +113,95 @@ void motor_eStop()
 //
 // Motor Set RPM - Will likely be called by an interupt from the UI
 //
-void motor_SetRPM(uint16_t rpm)
+void motor_Driver()
 {
     //This needs to:
     // Set motor RPM using void setDuty(uint16_t duty);
     // Will likely need to be setup in a closed loop with motor_GetRPM()
     // Will likely need to call motor_accelerate() & motor_decelerate
-    setDuty(rpm);
-
-    bool outM, outH, outN;
-
-    GPIOPinTypeGPIOInput(GPIO_PORTM_BASE, GPIO_PIN_3);
-    GPIOPinTypeGPIOInput(GPIO_PORTH_BASE, GPIO_PIN_2);
-    GPIOPinTypeGPIOInput(GPIO_PORTN_BASE, GPIO_PIN_2);
-
-    bool z = 1;
-    bool y = 0;
-    bool x = 1;
+    uint8_t duty = 50;
 
     while(1)
     {
-        outM = GPIOPinRead(GPIO_PORTM_BASE, GPIO_PIN_3);
-        outH = GPIOPinRead(GPIO_PORTH_BASE, GPIO_PIN_2);
-        outN = GPIOPinRead(GPIO_PORTN_BASE, GPIO_PIN_2);
-//        z = !z;
-//        y = !y;
-//        x = !x;
-//d updateMotor(bool Hall_a, bool Hall_b, bool Hall_c)
-        updateMotor(outM,outH,outN);
-        enableMotor();
+        if (rpm > input_rpm && rpm > 0)
+        {
+            duty--;
+        }
+        if (rpm < input_rpm && rpm < MOTOR_MAX_DUTY)
+        {
+            duty++;
+        }
 
+        setDuty(duty);
+        updateMotor(hallStates[0],hallStates[1],hallStates[2]); //hall states to be retreived by rpm reader task
     }
 }
 
 //
 // Motor Get RPM
 //
-int motor_GetRPM()
+void motor_GetRPM()
 {
-    //This needs to:
-    // Get motor RPM
+    //this assumes one hall trigger (per sensor) per revolution
+    Uint32 startTime, endTime, i, temp1, temp2, cumSum;
+
+
+    //init buffer
+    uint8_t bufferSize = 10;
+    uint16_t buffer[bufferSize];
+
+    for (i = 1; i < bufferSize; i++)
+    {
+        buffer[i] = 0;
+    }
+
+
+    while(1)
+    {
+        bool currHallState = hallStates[0];
+
+        startTime = Clock_getTicks();
+        do
+        {
+            *hallStates = motor_getHallState();
+
+        }
+        while (hallStates[0] == currHallState);
+
+        endTime = Clock_getTicks();
+
+        //start cumulitave sum to get avg rpm over last 10 samples
+        cumSum = 0;
+
+        temp1 = buffer[0];
+        buffer[0] = ((endTime-startTime)/g_ui32SysClock)*60; //this is meant to convert rev/tick to rpm
+        for (i = 1; i < bufferSize; i++)
+        {
+            //increment cumSum
+            cumSum += temp1;
+
+            //move all items down a place in buffer
+            temp2 = buffer[i];
+            buffer[i] = temp1;
+            temp1 = temp2;
+        }
+
+
+        rpm = (cumSum/bufferSize); //RACE CONDITION add access control later
+    }
+}
+
+bool * motor_getHallState()
+{
+    bool states[3] = {GPIOPinRead(GPIO_PORTM_BASE, GPIO_PIN_3), GPIOPinRead(GPIO_PORTH_BASE, GPIO_PIN_2), GPIOPinRead(GPIO_PORTN_BASE, GPIO_PIN_2)};
+    return states;
+}
+
+void motor_initHall()
+{
+    GPIOPinTypeGPIOInput(GPIO_PORTM_BASE, GPIO_PIN_3);
+    GPIOPinTypeGPIOInput(GPIO_PORTH_BASE, GPIO_PIN_2);
+    GPIOPinTypeGPIOInput(GPIO_PORTN_BASE, GPIO_PIN_2);
 }
 
 //
@@ -214,10 +262,10 @@ int main(void)
     // Board_initWatchdog();
     // Board_initWiFi();
 
-//    g_ui32SysClock = MAP_SysCtlClockFreqSet((SYSCTL_XTAL_25MHZ |
-//                                                SYSCTL_OSC_MAIN |
-//                                                SYSCTL_USE_PLL |
-//                                                SYSCTL_CFG_VCO_480), 120000000);
+    g_ui32SysClock = MAP_SysCtlClockFreqSet((SYSCTL_XTAL_25MHZ |
+                                                SYSCTL_OSC_MAIN |
+                                                SYSCTL_USE_PLL |
+                                                SYSCTL_CFG_VCO_480), 120000000);
 
 
 //    UART_config();
@@ -228,16 +276,21 @@ int main(void)
     // Init Motor
     //
     Error_Block motorError;
-    uint16_t pwm_period = 100;//getMotorPWMPeriod();
+    uint16_t pwm_period = MOTOR_MAX_DUTY;
     initMotorLib(pwm_period, &motorError);
+    motor_initHall();
 
-    /* Construct heartBeat Task  thread */
+    /* Construct motorDriver Task  thread */
     Task_Params_init(&taskParams);
-    taskParams.arg0 = 1000;
     taskParams.stackSize = TASKSTACKSIZE;
     taskParams.stack = &task0Stack;
-    Task_construct(&task0Struct, (Task_FuncPtr)heartBeatFxn, &taskParams, NULL);
+    Task_construct(&task0Struct, (Task_FuncPtr)motor_Driver, &taskParams, NULL);
 
+    /* Construct RPMr Task  thread */
+    Task_Params_init(&taskParams);
+    taskParams.stackSize = TASKSTACKSIZE;
+    taskParams.stack = &task1Stack;
+    Task_construct(&task1Struct, (Task_FuncPtr)motor_GetRPM, &taskParams, NULL);
 
 
 
