@@ -33,13 +33,16 @@
 /*
  *  ======== empty.c ========
  */
+#include <stdbool.h>
 /* XDCtools Header files */
 #include <xdc/std.h>
 #include <xdc/runtime/System.h>
+#include <xdc/runtime/Error.h>
 
 /* BIOS Header files */
 #include <ti/sysbios/BIOS.h>
 #include <ti/sysbios/knl/Task.h>
+#include <ti/sysbios/family/arm/m3/Hwi.h>
 
 /* TI-RTOS Header files */
 // #include <ti/drivers/EMAC.h>
@@ -52,6 +55,13 @@
 // #include <ti/drivers/Watchdog.h>
 // #include <ti/drivers/WiFi.h>
 
+/* DriverLib Header files */
+#include <driverlib/GPIO.h>
+
+/* inc Headers */
+#include <inc/hw_memmap.h>
+#include <inc/hw_ints.h>
+
 /* Board Header file */
 #include "Board.h"
 
@@ -59,13 +69,21 @@
 #include "./drivers/OPT3001.h"
 #include "./drivers/BMI160.h"
 
+/* Motor Header Files */
+#include "./drivers/motorLib/motorlib.h"
+
+/* Task Setup */
 #define TASKSTACKSIZE   512
 
 Task_Struct task0Struct;
 Char task0Stack[TASKSTACKSIZE];
 
+/* I2C Setup */
 I2C_Handle i2c;
 I2C_Params i2cParams;
+
+/* Motor Setup */
+Hwi_Handle motor_Hwi;
 
 /*
  *  ======== heartBeatFxn ========
@@ -91,6 +109,78 @@ Void heartBeatFxn(UArg arg0, UArg arg1)
 
     }
 }
+//*****************************************************************************
+//
+// Motor Control
+//
+//*****************************************************************************
+#define MOTOR_ACCELERATION_RPMs 750 //Note that this is measured in RPM per Second
+#define MOTOR_ESTOP_RPMs 1000 //Note that this is measured in RPM per Second
+#define MOTOR_CURR_MAX //we need to decide what this is
+#define MOTOR_TEMP_MAX //we need to decide what this is
+#define MOTOR_MAX_DUTY 100
+
+
+
+#define MOTOR_HALL_A_PIN GPIO_PIN_3
+#define MOTOR_HALL_A_PORT GPIO_PORTM_BASE
+#define MOTOR_HALL_A_INT GPIO_INT_PIN_3
+
+#define MOTOR_HALL_B_PIN GPIO_PIN_2
+#define MOTOR_HALL_B_PORT GPIO_PORTH_BASE
+#define MOTOR_HALL_B_INT GPIO_INT_PIN_2
+
+#define MOTOR_HALL_C_PIN GPIO_PIN_2
+#define MOTOR_HALL_C_PORT GPIO_PORTN_BASE
+#define MOTOR_HALL_C_INT GPIO_INT_PIN_2
+
+
+#define MOTOR_RPM_TIMER_PERIPH SYSCTL_PERIPH_TIMER3
+#define MOTOR_RPM_TIMER_BASE TIMER3_BASE
+#define MOTOR_RPM_TIMER TIMER_A
+#define MOTOR_RPM_TIMER_INT INT_TIMER3A
+#define MOTOR_RPM_TIMER_TIMEOUT TIMER_TIMA_TIMEOUT
+
+bool motor_hallStates[3];
+
+void motor_initHall(void)
+{
+
+    GPIOPinTypeGPIOInput(MOTOR_HALL_A_PORT, MOTOR_HALL_A_PIN);
+    GPIOIntTypeSet(MOTOR_HALL_A_PORT, MOTOR_HALL_A_PIN,GPIO_HIGH_LEVEL);
+    GPIOIntEnable(MOTOR_HALL_A_PORT,MOTOR_HALL_A_INT);
+
+    GPIOPinTypeGPIOInput(MOTOR_HALL_B_PORT, MOTOR_HALL_B_PIN);
+    GPIOIntTypeSet(MOTOR_HALL_B_PORT, MOTOR_HALL_B_PIN,GPIO_HIGH_LEVEL);
+    GPIOIntEnable(MOTOR_HALL_B_PORT,MOTOR_HALL_B_INT);
+
+    GPIOPinTypeGPIOInput(MOTOR_HALL_C_PORT, MOTOR_HALL_C_PIN);
+    GPIOIntTypeSet(MOTOR_HALL_C_PORT, MOTOR_HALL_C_PIN,GPIO_HIGH_LEVEL);
+    GPIOIntEnable(MOTOR_HALL_C_PORT,MOTOR_HALL_C_INT);
+
+}
+
+
+
+void motor_init(void){
+    motor_initHall();
+//    motor_initRPM();
+//    Error_Block motorError;
+//    initMotorLib(MOTOR_MAX_DUTY, &motorError);
+//    enableMotor();
+//    setDuty(50);
+}
+
+
+void motor_driver(UArg arg0)
+{
+    bool motor_hallState = GPIOPinRead(MOTOR_HALL_A_PORT, MOTOR_HALL_A_PIN);
+//    motor_hallStates[0] = GPIOPinRead(MOTOR_HALL_A_PORT, MOTOR_HALL_A_PIN);
+//    motor_hallStates[1] = GPIOPinRead(MOTOR_HALL_B_PORT, MOTOR_HALL_B_PIN);
+//    motor_hallStates[2] = GPIOPinRead(MOTOR_HALL_C_PORT, MOTOR_HALL_C_PIN);
+//    updateMotor(motor_hallStates[0],motor_hallStates[1],motor_hallStates[2]);
+}
+
 
 /*
  *  ======== main ========
@@ -110,6 +200,7 @@ int main(void)
     // Board_initUSBMSCHFatFs();
     // Board_initWatchdog();
     // Board_initWiFi();
+    motor_init();
 
     /* create and open i2c port*/
     I2C_Params_init(&i2cParams);
@@ -127,10 +218,21 @@ int main(void)
     taskParams.arg0 = 1000;
     taskParams.stackSize = TASKSTACKSIZE;
     taskParams.stack = &task0Stack;
-    Task_construct(&task0Struct, (Task_FuncPtr)heartBeatFxn, &taskParams, NULL);
+//    Task_construct(&task0Struct, (Task_FuncPtr)heartBeatFxn, &taskParams, NULL);
 
-     /* Turn on user LED */
-    GPIO_write(Board_LED0, Board_LED_ON);
+    /* Create Motor Driving HWI's */
+    Error_Block motor_HwiError;
+    Hwi_Params motor_HwiParams;
+
+    Hwi_Params_init(&motor_HwiParams);
+    motor_HwiParams.maskSetting = Hwi_MaskingOption_SELF;
+
+    motor_Hwi = Hwi_create(INT_GPIOM_TM4C129,(Hwi_FuncPtr)motor_driver,&motor_HwiParams,&motor_HwiError);
+
+    if (Error_check(&motor_HwiError)) {
+              // handle the error
+        GPIO_toggle(Board_LED1);
+    }
 
     System_printf("Starting the example\nSystem provider is set to SysMin. "
                   "Halt the target to view any SysMin contents in ROV.\n");
