@@ -43,6 +43,8 @@
 #include <ti/sysbios/BIOS.h>
 #include <ti/sysbios/knl/Task.h>
 #include <ti/sysbios/family/arm/m3/Hwi.h>
+#include <ti/sysbios/family/arm/m3/Timer.h>
+#include <ti/sysbios/knl/Clock.h>
 
 /* TI-RTOS Header files */
 // #include <ti/drivers/EMAC.h>
@@ -57,10 +59,13 @@
 
 /* DriverLib Header files */
 #include <driverlib/GPIO.h>
+#include <driverlib/sysctl.h>
+#include <driverlib/timer.h>
 
 /* inc Headers */
 #include <inc/hw_memmap.h>
 #include <inc/hw_ints.h>
+#include <inc/hw_timer.h>
 
 /* Board Header file */
 #include "Board.h"
@@ -82,8 +87,6 @@ Char task0Stack[TASKSTACKSIZE];
 I2C_Handle i2c;
 I2C_Params i2cParams;
 
-/* Motor Setup */
-Hwi_Handle motor_Hwi;
 
 /*
  *  ======== heartBeatFxn ========
@@ -125,23 +128,40 @@ Void heartBeatFxn(UArg arg0, UArg arg1)
 #define MOTOR_HALL_A_PIN GPIO_PIN_3
 #define MOTOR_HALL_A_PORT GPIO_PORTM_BASE
 #define MOTOR_HALL_A_INT GPIO_INT_PIN_3
+#define MOTOR_HALL_A_ISR INT_GPIOM_TM4C129
 
 #define MOTOR_HALL_B_PIN GPIO_PIN_2
 #define MOTOR_HALL_B_PORT GPIO_PORTH_BASE
 #define MOTOR_HALL_B_INT GPIO_INT_PIN_2
+#define MOTOR_HALL_B_ISR INT_GPIOH_TM4C129
 
 #define MOTOR_HALL_C_PIN GPIO_PIN_2
 #define MOTOR_HALL_C_PORT GPIO_PORTN_BASE
 #define MOTOR_HALL_C_INT GPIO_INT_PIN_2
+#define MOTOR_HALL_C_ISR INT_GPION_TM4C129
+
+//#define MOTOR_RPM_TIMER_PERIPH SYSCTL_PERIPH_TIMER3
+//#define MOTOR_RPM_TIMER_BASE TIMER3_BASE
+//#define MOTOR_RPM_TIMER TIMER_A
+//#define MOTOR_RPM_TIMER_INT INT_TIMER3A
+//#define MOTOR_RPM_TIMER_TIMEOUT TIMER_TIMA_TIMEOUT
+
+/* Motor Funcs */
+void motor_init(void);
+void motor_driver(UArg arg0);
+void motor_initISR();
+void motor_start();
+void motor_initHall(void);
+void motor_initRPM();
+void motor_controller();
+void motor_initRPM();
 
 
-#define MOTOR_RPM_TIMER_PERIPH SYSCTL_PERIPH_TIMER3
-#define MOTOR_RPM_TIMER_BASE TIMER3_BASE
-#define MOTOR_RPM_TIMER TIMER_A
-#define MOTOR_RPM_TIMER_INT INT_TIMER3A
-#define MOTOR_RPM_TIMER_TIMEOUT TIMER_TIMA_TIMEOUT
-
+/* Motor Globals */
 bool motor_hallStates[3];
+int motor_edgeCount = 0;
+Hwi_Handle motor_Hwi_A, motor_Hwi_B, motor_Hwi_C;
+Timer_Handle motor_rpm_Timer;
 
 void motor_initHall(void)
 {
@@ -160,27 +180,94 @@ void motor_initHall(void)
 
 }
 
+void motor_start(){
+    enableMotor();
+    setDuty(50);
 
-
-void motor_init(void){
-    motor_initHall();
-//    motor_initRPM();
-//    Error_Block motorError;
-//    initMotorLib(MOTOR_MAX_DUTY, &motorError);
-//    enableMotor();
-//    setDuty(50);
-}
-
-
-void motor_driver(UArg arg0)
-{
-    bool motor_hallState = GPIOPinRead(MOTOR_HALL_A_PORT, MOTOR_HALL_A_PIN);
 //    motor_hallStates[0] = GPIOPinRead(MOTOR_HALL_A_PORT, MOTOR_HALL_A_PIN);
 //    motor_hallStates[1] = GPIOPinRead(MOTOR_HALL_B_PORT, MOTOR_HALL_B_PIN);
 //    motor_hallStates[2] = GPIOPinRead(MOTOR_HALL_C_PORT, MOTOR_HALL_C_PIN);
 //    updateMotor(motor_hallStates[0],motor_hallStates[1],motor_hallStates[2]);
 }
 
+void motor_clearISR(){
+    Hwi_clearInterrupt(MOTOR_HALL_A_ISR);
+    Hwi_clearInterrupt(MOTOR_HALL_B_ISR);
+    Hwi_clearInterrupt(MOTOR_HALL_C_ISR);
+}
+
+void motor_initISR(){
+    /* Create Motor Driving HWI's */
+    Error_Block motor_HwiError;
+    Hwi_Params motor_HwiParams;
+
+    Hwi_Params_init(&motor_HwiParams);
+    motor_HwiParams.maskSetting = Hwi_MaskingOption_SELF;
+
+    motor_Hwi_A = Hwi_create(MOTOR_HALL_A_ISR,(Hwi_FuncPtr)motor_driver,&motor_HwiParams,&motor_HwiError);
+    errorCheck(&motor_HwiError);
+    motor_Hwi_B = Hwi_create(MOTOR_HALL_B_ISR,(Hwi_FuncPtr)motor_driver,&motor_HwiParams,&motor_HwiError);
+    errorCheck(&motor_HwiError);
+    motor_Hwi_C = Hwi_create(MOTOR_HALL_C_ISR,(Hwi_FuncPtr)motor_driver,&motor_HwiParams,&motor_HwiError);
+    errorCheck(&motor_HwiError);
+
+}
+
+void motor_initRPM(){
+#define MOTOR_RPM_TIMER_PERIPH SYSCTL_PERIPH_TIMER3
+#define MOTOR_RPM_TIMER_BASE TIMER3_BASE
+#define MOTOR_RPM_TIMER TIMER_A
+#define MOTOR_RPM_TIMER_INT INT_TIMER3A
+#define MOTOR_RPM_TIMER_TIMEOUT TIMER_TIMA_TIMEOUT
+
+    SysCtlPeripheralEnable(MOTOR_RPM_TIMER_PERIPH);
+
+    Error_Block rpm_TimerError;
+    Timer_Params rpm_TimerParams;
+
+    Timer_Params_init(&rpm_TimerParams);
+    rpm_TimerParams.period = 10000; //0.01s
+
+    motor_rpm_Timer = Timer_create(1,(Timer_FuncPtr)motor_controller,&rpm_TimerParams, &rpm_TimerError);
+    errorCheck(&rpm_TimerError);
+}
+
+void motor_controller(){
+    int j = 0;
+}
+
+void motor_driver(UArg arg0)
+{
+    motor_clearISR();
+
+    motor_hallStates[0] = GPIOPinRead(MOTOR_HALL_A_PORT, MOTOR_HALL_A_PIN);
+    motor_hallStates[1] = GPIOPinRead(MOTOR_HALL_B_PORT, MOTOR_HALL_B_PIN);
+    motor_hallStates[2] = GPIOPinRead(MOTOR_HALL_C_PORT, MOTOR_HALL_C_PIN);
+    updateMotor(motor_hallStates[0],motor_hallStates[1],motor_hallStates[2]);
+
+    motor_edgeCount++;
+}
+
+void motor_init(void){
+    motor_initHall();
+//    motor_initRPM();
+    motor_initISR();
+//    motor_initRPM();
+    Error_Block motorError;
+    bool initSuccess = initMotorLib(MOTOR_MAX_DUTY, &motorError);
+    errorCheck(&motorError);
+
+
+    motor_start();
+
+}
+
+void errorCheck(Error_Block *eb){
+    if (Error_check(&eb)) {
+        // handle the error
+        GPIO_toggle(Board_LED1);
+    }
+}
 
 /*
  *  ======== main ========
@@ -220,19 +307,9 @@ int main(void)
     taskParams.stack = &task0Stack;
 //    Task_construct(&task0Struct, (Task_FuncPtr)heartBeatFxn, &taskParams, NULL);
 
-    /* Create Motor Driving HWI's */
-    Error_Block motor_HwiError;
-    Hwi_Params motor_HwiParams;
 
-    Hwi_Params_init(&motor_HwiParams);
-    motor_HwiParams.maskSetting = Hwi_MaskingOption_SELF;
 
-    motor_Hwi = Hwi_create(INT_GPIOM_TM4C129,(Hwi_FuncPtr)motor_driver,&motor_HwiParams,&motor_HwiError);
 
-    if (Error_check(&motor_HwiError)) {
-              // handle the error
-        GPIO_toggle(Board_LED1);
-    }
 
     System_printf("Starting the example\nSystem provider is set to SysMin. "
                   "Halt the target to view any SysMin contents in ROV.\n");
